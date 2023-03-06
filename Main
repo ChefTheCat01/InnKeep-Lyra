@@ -1,77 +1,176 @@
+import os
 import discord
+from dotenv import load_dotenv
 import requests
+import json
 from bs4 import BeautifulSoup
+from discord.ext import commands
 
-TOKEN = 'your_bot_token_here'
-client = discord.Client()
-bot_name = 'InnKeep Lyra'
+load_dotenv()
+TOKEN = os.getenv('DISCORD_TOKEN')
+GUILD = os.getenv('DISCORD_GUILD')
 
-@client.event
+intents = discord.Intents().all()
+bot = commands.Bot(command_prefix='%', intents=intents)
+
+@bot.event
 async def on_ready():
-    print(f'{client.user.name} has connected to Discord!')
+    guild = discord.utils.find(lambda g: g.name == GUILD, bot.guilds)
+    print(
+        f'{bot.user} is connected to the following guild:\n'
+        f'{guild.name}(id: {guild.id})'
+    )
 
-@client.event
-async def on_message(message):
-    if message.author == client.user:
+# help command
+@bot.command(name='help')
+async def help_command(ctx):
+    response = 'I am InnKeep Lyra, a bot designed to help with D&D related queries. Here are my commands:\n\n'
+    response += '**%help** : Get the list of commands\n'
+    response += '**%hi** : Greet the bot\n'
+    response += '**%wr [name]** : Get information about a race\n'
+    response += '**%wc [name]** : Get information about a class\n'
+    response += '**%wm [name]** : Get information about a creature or monster\n'
+    await ctx.send(response)
+
+# hi command
+@bot.command(name='hi')
+async def hi_command(ctx):
+    response = 'Ahh, adventurer...welcome to our inn. What brings you here?\n'
+    await ctx.send(response)
+
+# race command
+@bot.command(name='wr')
+async def race(ctx, *, name):
+    name = name.replace(" ", "-")
+    response = ""
+    r = requests.get(f'https://www.dndbeyond.com/races/{name}')
+    soup = BeautifulSoup(r.content, 'html.parser')
+    try:
+        response += soup.find('h1', attrs={'class': 'page-title'}).text + "\n"
+    except:
+        response += "I'm sorry, I couldn't find that race. Please check your spelling and try again.\n"
+        await ctx.send(response)
         return
+    sections = soup.find_all('div', attrs={'class': 'ct__main'})
+    for section in sections:
+        heading = section.find('h2')
+        if heading is not None:
+            response += f"\n**{heading.text}**\n"
+        content = section.find('div', attrs={'class': 'ct__description'})
+        if content is not None:
+            response += f"{content.text}\n"
+    await ctx.send(response)
 
-    if message.content.startswith('%'):
-        command = message.content.split()[0][1:]
-        search_term = message.content[len(command)+2:]
-        
-        if command == 'hi':
-            response = f'Ahh, adventurer... Welcome to our inn. How may I assist you, {message.author.name}?'
-        elif command == 'wr':
-            response = search_wiki('https://www.dndbeyond.com/races/', search_term)
-        elif command == 'wc':
-            response = search_wiki('https://www.dndbeyond.com/classes/', search_term)
-        elif command == 'wm':
-            response = search_wiki('https://www.dndbeyond.com/monsters/', search_term, True)
-        elif command == 'wl':
-            response = search_wiki('https://www.dndbeyond.com/sources/basic-rules/foreword-and-table-of-contents#Introduction', search_term)
-        elif command == 'wi':
-            response = search_wiki('https://www.dndbeyond.com/equipment/', search_term)
-        elif command == 'wa':
-            response = search_wiki('https://www.dndbeyond.com/equipment/armor/', search_term)
-        elif command == 'ws':
-            response = search_wiki('https://www.dndbeyond.com/spells/', search_term)
-        else:
-            response = f"I'm sorry, I didn't understand that command. Type '%help' for a list of available commands."
+# class command
+@bot.command(name='wc')
+async def classs(ctx, *, name):
+    name = name.replace(" ", "-")
+    response = ""
+    r = requests.get(f'https://www.dndbeyond.com/classes/{name}')
+    soup = BeautifulSoup(r.content, 'html.parser')
+    try:
+        response += soup.find('h1', attrs={'class': 'page-title'}).text + "\n"
+    except:
+        response += "I'm sorry, I couldn't find that class. Please check your spelling and try again.\n"
+        await ctx.send(response)
+        return
+    sections = soup.find_all('div', attrs={'class': 'ct__main'})
+    for section in sections:
+        heading = section.find('h2')
+        if heading is not None:
+            response += f"\n**{heading.text}**\n"
+        content = section.find('div', attrs={'class': 'ct__description'})
+        if content is not None:
+            response += f"{content.text}\n"
+    await ctx.send(response)
 
-        await message.channel.send(embed=response)
+    # armor command
+    @bot.command()
+    async def armor(ctx, *, name):
+        query = name.strip().lower().replace(" ", "-")
+        url = f"https://www.dndbeyond.com/equipment/{query}"
+        try:
+            html = urlopen(url).read()
+        except HTTPError as e:
+            return await ctx.send(f"Unable to find information for {name}")
 
-def search_wiki(url, search_term, is_monster=False):
-    # Download the web page
-    res = requests.get(url + f'?filter-search={search_term}')
-    res.raise_for_status()
+        soup = BeautifulSoup(html, "html.parser")
 
-    # Parse the HTML
-    soup = BeautifulSoup(res.text, 'html.parser')
+        # get the name of the armor
+        try:
+            armor_name = soup.find("div", {"class": "ct-page-title"}).text.strip()
+        except AttributeError as e:
+            return await ctx.send(f"Unable to find information for {name}")
 
-    # Find the search result description
-    description = soup.select_one('.search-result__description')
+        # get the armor's properties
+        armor_props = soup.find_all("div", {"class": "ct-item-property__value"})
 
-    if description:
-        if is_monster:
-            monster_url = 'https://www.dndbeyond.com' + soup.select_one('.search-result__header a')['href']
-            monster_res = requests.get(monster_url)
-            monster_res.raise_for_status()
-            monster_soup = BeautifulSoup(monster_res.text, 'html.parser')
-            embed = discord.Embed(title=monster_soup.select_one('.page-title__text').get_text(), url=monster_url, description=description.get_text())
-            embed.set_image(url=monster_soup.select_one('.image-wrapper img')['src'])
-            stats = monster_soup.select_one('.mon-stat-block__description')
-            if stats:
-                embed.add_field(name='Stats', value=stats.get_text(), inline=False)
-            traits = monster_soup.select('.mon-stat-block__attribute-data-item')
-            if traits:
-                for trait in traits:
-                    trait_name = trait.select_one('.mon-stat-block__attribute-data-item-name').get_text()
-                    trait_desc = trait.select_one('.mon-stat-block__attribute-data-item-value').get_text()
-                    embed.add_field(name=trait_name, value=trait_desc, inline=False)
-            return embed
-        else:
-            return discord.Embed(title=description.get_text())
-    else:
-        return discord.Embed(title=f'Sorry, I could not find any information about
+        properties = []
+        for prop in armor_props:
+            properties.append(prop.text.strip())
 
+        # prepare and send the message with the armor's info
+        embed = discord.Embed(title=armor_name, url=url, color=0xFF5733)
+        embed.add_field(name="Properties", value="\n".join(properties))
+        await ctx.send(embed=embed)
+
+    # shield command
+    @bot.command()
+    async def shield(ctx, *, name):
+        query = name.strip().lower().replace(" ", "-")
+        url = f"https://www.dndbeyond.com/equipment/{query}"
+        try:
+            html = urlopen(url).read()
+        except HTTPError as e:
+            return await ctx.send(f"Unable to find information for {name}")
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # get the name of the shield
+        try:
+            shield_name = soup.find("div", {"class": "ct-page-title"}).text.strip()
+        except AttributeError as e:
+            return await ctx.send(f"Unable to find information for {name}")
+
+        # get the shield's properties
+        shield_props = soup.find_all("div", {"class": "ct-item-property__value"})
+
+        properties = []
+        for prop in shield_props:
+            properties.append(prop.text.strip())
+
+        # prepare and send the message with the shield's info
+        embed = discord.Embed(title=shield_name, url=url, color=0xFF5733)
+        embed.add_field(name="Properties", value="\n".join(properties))
+        await ctx.send(embed=embed)
+
+    # miscellaneous command
+    @bot.command()
+    async def misc(ctx, *, name):
+        query = name.strip().lower().replace(" ", "-")
+        url = f"https://www.dndbeyond.com/equipment/{query}"
+        try:
+            html = urlopen(url).read()
+        except HTTPError as e:
+            return await ctx.send(f"Unable to find information for {name}")
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # get the name of the item
+        try:
+            item_name = soup.find("div", {"class": "ct-page-title"}).text.strip()
+        except AttributeError as e:
+            return await ctx.send(f"Unable to find information for {name}")
+
+        # get the item's properties
+        item_props = soup.find_all("div", {"class": "ct-item-property__value"})
+
+        properties = []
+        for prop in item_props:
+            properties.append(prop.text.strip())
+
+        # prepare and send the message with the item's info
+        embed = discord.Embed(title=item_name, url=url, color=0xFF5733)
+        embed.add_field(name="Properties", value="\n".join(properties))
+        await ctx.send(embed=embed)
 
