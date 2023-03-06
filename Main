@@ -1,0 +1,77 @@
+import discord
+import requests
+from bs4 import BeautifulSoup
+
+TOKEN = 'your_bot_token_here'
+client = discord.Client()
+bot_name = 'InnKeep Lyra'
+
+@client.event
+async def on_ready():
+    print(f'{client.user.name} has connected to Discord!')
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+
+    if message.content.startswith('%'):
+        command = message.content.split()[0][1:]
+        search_term = message.content[len(command)+2:]
+        
+        if command == 'hi':
+            response = f'Ahh, adventurer... Welcome to our inn. How may I assist you, {message.author.name}?'
+        elif command == 'wr':
+            response = search_wiki('https://www.dndbeyond.com/races/', search_term)
+        elif command == 'wc':
+            response = search_wiki('https://www.dndbeyond.com/classes/', search_term)
+        elif command == 'wm':
+            response = search_wiki('https://www.dndbeyond.com/monsters/', search_term, True)
+        elif command == 'wl':
+            response = search_wiki('https://www.dndbeyond.com/sources/basic-rules/foreword-and-table-of-contents#Introduction', search_term)
+        elif command == 'wi':
+            response = search_wiki('https://www.dndbeyond.com/equipment/', search_term)
+        elif command == 'wa':
+            response = search_wiki('https://www.dndbeyond.com/equipment/armor/', search_term)
+        elif command == 'ws':
+            response = search_wiki('https://www.dndbeyond.com/spells/', search_term)
+        else:
+            response = f"I'm sorry, I didn't understand that command. Type '%help' for a list of available commands."
+
+        await message.channel.send(embed=response)
+
+def search_wiki(url, search_term, is_monster=False):
+    # Download the web page
+    res = requests.get(url + f'?filter-search={search_term}')
+    res.raise_for_status()
+
+    # Parse the HTML
+    soup = BeautifulSoup(res.text, 'html.parser')
+
+    # Find the search result description
+    description = soup.select_one('.search-result__description')
+
+    if description:
+        if is_monster:
+            monster_url = 'https://www.dndbeyond.com' + soup.select_one('.search-result__header a')['href']
+            monster_res = requests.get(monster_url)
+            monster_res.raise_for_status()
+            monster_soup = BeautifulSoup(monster_res.text, 'html.parser')
+            embed = discord.Embed(title=monster_soup.select_one('.page-title__text').get_text(), url=monster_url, description=description.get_text())
+            embed.set_image(url=monster_soup.select_one('.image-wrapper img')['src'])
+            stats = monster_soup.select_one('.mon-stat-block__description')
+            if stats:
+                embed.add_field(name='Stats', value=stats.get_text(), inline=False)
+            traits = monster_soup.select('.mon-stat-block__attribute-data-item')
+            if traits:
+                for trait in traits:
+                    trait_name = trait.select_one('.mon-stat-block__attribute-data-item-name').get_text()
+                    trait_desc = trait.select_one('.mon-stat-block__attribute-data-item-value').get_text()
+                    embed.add_field(name=trait_name, value=trait_desc, inline=False)
+            return embed
+        else:
+            return discord.Embed(title=description.get_text())
+    else:
+        return discord.Embed(title=f'Sorry, I could not find any information about
+
+
